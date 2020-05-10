@@ -7,8 +7,8 @@ optimal to co-locate.
 
 ## Introduction
 
-There are certain design questions in Factorio which some of us may not
-find difficult to answer:
+There are certain design questions in Factorio which some of us may find
+difficult to answer:
 
   - Should I produce e.g. advanced circuits at my main base or should I
     start a new location for this?
