@@ -1,0 +1,90 @@
+---
+title: "Manufacturing clusters"
+output: github_document
+---
+
+```{r, echo = FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
+```
+
+```{r}
+library(igraph)
+library(ggplot2)
+library(reshape2)
+```
+
+```{r}
+ingr <- jsonlite::fromJSON("ingredients.json")
+petroleum_gas <- c("petroleum-gas", "crude-oil", NA)
+ingr <- rbind(ingr, petroleum_gas)
+```
+
+Export Factorio's recipes into a sparse matrix (what inputs go into what outputs), then do clustering to determine what assembling machines are optimal to co-locate.
+
+## Introduction
+
+There are certain design questions in Factorio which some of us may not find difficult to answer:
+
+* Should I produce e.g. advanced circuits at my main base or should I start a new location for this?
+* If I already have multiple sites, which should be extended with the new product?
+* Should I transport raw materials to the new site or should I transport intermediates?
+* Which materials should I transport on the rail network?
+* Which materials should I put on the main bus?
+
+These are the questions we would like to answer through analysing local recipe files. This is not a final analysis, rather a live document that is updated every now and then.
+
+## Product complexity
+
+As your factory grows, adding a new production line becomes more and more difficult and so at some point you will decide to start a new location. Why would you do this?
+
+You might feel that transporting raw materials to a new location and building a new base is less time consuming to set up than adding the new production line to your existing base. This could be because the new product is quite complex. Let's define the complexity of a product as the number of manufacturing steps required to produce it. For example, this is how an electronic circuit is produced:
+
+```{r}
+net <- graph_from_data_frame(ingr[,c(2,1,3)])
+ac<- make_ego_graph(net, 100, nodes = "electronic-circuit", mode = "in")
+plot(ac[[1]], layout = layout_in_circle)
+```
+
+The number manufacturing steps (complexity) in this case is ```r ego_size(net, 100, "electronic-circuit", "in")-1```. Let's calculate product complexity for each product. Here are a few:
+
+```{r}
+items <- data.frame(
+  name = sort(unique(c(ingr$recipe_name, ingr$ingredient_name))),
+  stringsAsFactors = FALSE
+)
+items$complexity <- ego_size(net, 100, items$name, "in")-1
+head(items)
+```
+
+Let's play with this a little, and plot the complexity of science packs.
+
+```{r}
+science <- c("automation-science-pack",
+             "logistic-science-pack",
+             "military-science-pack",
+             "chemical-science-pack",
+             "production-science-pack",
+             "utility-science-pack")
+
+df <- items[which(items$name %in% science),]
+df$name <- factor(df$name, levels = science)
+ggplot(df, aes(name, complexity))+geom_col()+theme(axis.text.x = element_text(angle = 90, hjust = 1))+xlab("")
+```
+
+This complexity metric properly ranks product complexities, e.g. a chemical science pack is more complex to produce than a logistic science pack. However, this might not be an ideal complexity metric, e.g. we would probably not say that a production science pack is about twice as complex as a logistic science pack. But let's ignore this for now.
+
+## Frequency of use
+
+```{r}
+items$frequency <- sapply(items$name, function(x) nrow(ingr[ingr$ingredient_name == x,]))
+raws <- items[items$frequency !=0,]
+```
+
+Another thing you might consider in your decisions is how often this new product will be used in other manufacturing processes. Let's remove items that are not used in any production steps (```r round(100*(1-nrow(raws)/nrow(items)),1)``` percent of the items) and plot product complexities as a function of product use frequency. Let's use a log 10 scale for the x axis for better separation.
+
+```{r, fig.width=10, fig.height=10}
+set.seed(100)
+ggplot(raws, aes(frequency, complexity, label = name))+geom_point()+geom_text(size = 3, angle = 30, position=position_jitter(width=0.1, height = 0.1))+theme(legend.position = "none")+scale_x_log10()
+```
+
+For example, a processing unit is quite a complex product and it is used in many other production lines. Therefore it might be worth to set up a separate site for processing unit production, and either use the rail network to transport processing units between sites, or put it on the main bus if you wish to consume processing units at the same site they are produced. On the other hand, a stone furnace is quite simple to manufacture and it is not used in many products so it may be better to manufacture stone furnaces locally for each process that uses it.
